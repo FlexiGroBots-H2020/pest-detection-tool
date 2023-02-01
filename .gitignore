@@ -1,0 +1,10 @@
+# folders to ignore
+data/
+runs/
+output/
+inputs/
+models/
+models_clip/
+__pycache__/
+yolov5s.pt
+tests/

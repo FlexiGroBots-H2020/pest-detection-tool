@@ -1,0 +1,32 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true, 
+            "args": [
+                "--config-file",
+                "Detic/configs/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.yaml",
+                "--video-input",
+                "input/Row4_1.mp4",
+                "--output",
+                "output/",
+                "--vocabulary",
+                "custom",
+                "--custom_vocabulary",
+                "grape_cluster",
+                "--confidence-threshold",
+                "0.15",
+                "--nms_max_overlap",
+                "0.7"
+            ]
+        }
+    ]
+}
