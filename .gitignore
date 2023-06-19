@@ -3,8 +3,11 @@ data/
 runs/
 output/
 inputs/
+input/
 models/
 models_clip/
 __pycache__/
 yolov5s.pt
 tests/
+models_backup/
+env/

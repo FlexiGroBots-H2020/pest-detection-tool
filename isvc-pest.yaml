@@ -1,0 +1,18 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: pest-model
+spec:
+  predictor:
+    containers:
+      - name: kserve-container
+        image: mariotrivinor/pest-tool:v0
+        imagePullPolicy: Always 
+        envFrom:
+        - secretRef:
+            name: mqtt
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+            memory: 8Gi
+            cpu : 8

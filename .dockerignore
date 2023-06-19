@@ -1,4 +1,7 @@
 #folders to be ignored
-**/input/
+**/inputs/
 **/output/
 **/.git/
+**/tests/
+**/models_backup/
+**/env/
