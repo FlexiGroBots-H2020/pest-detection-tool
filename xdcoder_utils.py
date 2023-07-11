@@ -20,6 +20,7 @@ import json
 import argparse
 import logging
 import time
+import torchvision.transforms as T
 
 logger = logging.getLogger(__name__)
 
@@ -172,16 +173,22 @@ def semseg_single_im(image_ori, transform, model, metadata, output_root, file_na
         #image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
         images = torch.from_numpy(image.copy()).permute(2,0,1).cuda()
-        batch_inputs = [{'image': images, 'height': height, 'width': width}]
+        batch_inputs = [{'image': images, 'height': image.shape[0], 'width': image.shape[1]}]
         try:
             outputs = model.forward(batch_inputs)
             visual = Visualizer(image_ori, metadata=metadata)
 
             sem_seg = outputs[-1]['sem_seg'].max(0)[1]
-            img_out = visual.draw_sem_seg(sem_seg.cpu(), alpha=0.4) # rgb Image
+            sem_seg_np = sem_seg.cpu().numpy()
+            sem_seg_np = (sem_seg_np * 255).astype(np.uint8)
+            sem_seg_pil = Image.fromarray(sem_seg_np)
+            transform_resize = T.Resize(size = (height,width), interpolation=Image.BICUBIC)
+            sem_seg = transform_resize(sem_seg_pil)
+            sem_seg = np.asarray(sem_seg)
+            img_out = visual.draw_sem_seg(sem_seg, alpha=0.4) # rgb Image
 
-            if torch.nonzero(sem_seg == 0) != None:
-                mask_roi = np.array(sem_seg.cpu())==0
+            if np.nonzero(sem_seg == 0) != None:
+                mask_roi = np.array(sem_seg)==0
                 nb_components, output, stats, _ = cv2.connectedComponentsWithStats(mask_roi.astype("uint8"), connectivity=8)
                 sizes = stats[:, -1]
                 max_label = 1
@@ -198,7 +205,7 @@ def semseg_single_im(image_ori, transform, model, metadata, output_root, file_na
                 locations = torch.nonzero(torch.tensor(mask_out) == 0)
                 y_min, x_min = torch.min(locations, dim=0).values
                 y_max, x_max = torch.max(locations, dim=0).values
-                margin = 5
+                margin = 0
                 try:
                     top = y_min.cpu().numpy().item() - margin
                     left = x_min.cpu().numpy().item() - margin

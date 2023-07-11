@@ -1,6 +1,6 @@
 import multiprocessing as mp
 
-from pest_detection_utils import get_parser, load_detic, load_xdecoder_semseg, process_mask, mask_metrics, predict_img, pred2COCOannotations, detect_grid, insect_statistics
+from pest_detection_utils import list_image_paths, get_parser, load_detic, load_xdecoder_semseg, process_mask, mask_metrics, predict_img, pred2COCOannotations, detect_grid, insect_statistics
 
 import sys
 sys.path.insert(0, 'detectron2/')
@@ -48,10 +48,7 @@ if __name__ == "__main__":
         #model, transform, metadata, vocabulary_xdec = load_xdecoder_refseg(args)
         model, transform, metadata, vocabulary_xdec = load_xdecoder_semseg(args)
     
-    list_images_paths = [] 
-    for input in args.input:
-        list_images_paths = list_images_paths + glob.glob(input)
-        
+    list_images_paths = list_image_paths(args.input[0])     
             
     # Generate experiment folder 
     list_existing_exp = glob.glob(os.path.join(args.output, "exp*"))
@@ -150,6 +147,7 @@ if __name__ == "__main__":
             try:
                 grids = detect_grid(args, img_zoi_crop, output_folder=output_folder, file_name=file_name)
             except Exception as e:
+                grids = None
                 logger.info("No grid detected: {}".format(e))
             logger.info("Grid detection time: {:.2f} seconds".format(time.time() - grid_start_time))    
 

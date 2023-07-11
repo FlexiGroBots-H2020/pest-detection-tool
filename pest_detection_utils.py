@@ -557,21 +557,28 @@ def patch_image(image, patch_size, overlap):
     return image_tiles
             
 
-def im2patches(img, patch_size=640, overlap=0.2):
-    h,w,channels= img.shape
-    step = round(patch_size*(1-overlap))
-    n_h, n_w, _ = np.ceil(np.array(img.shape) / step).astype(int) * step
-    
-    if h < patch_size:
-        n_h = patch_size
-    if w < patch_size:
-        n_w = patch_size
-    
-    img_border= cv2.copyMakeBorder(img,0,int(n_h-h), 0, int(n_w-w),cv2.BORDER_CONSTANT, value=[0, 0, 0]) 
-    patches = patch_image(img_border, patch_size, overlap)
-    empty_mask = np.zeros((img_border.shape[0], img_border.shape[1]))
-    patches_np = np.reshape(patches, (int(n_h/step), int(n_w/step), patch_size, patch_size, channels))
-    return patches_np, empty_mask
+def im2patches(img, patch_size=640, overlap=0.2, max_patches = 80):
+    num_patches = max_patches +1
+    pixels_add = 32
+    patches_increments_count = 0
+    while num_patches > max_patches:
+        patch_size = patch_size + pixels_add*patches_increments_count
+        h,w,channels= img.shape
+        step = round(patch_size*(1-overlap))
+        n_h, n_w, _ = np.ceil(np.array(img.shape) / step).astype(int) * step
+        
+        if h < patch_size:
+            n_h = patch_size
+        if w < patch_size:
+            n_w = patch_size
+        
+        img_border= cv2.copyMakeBorder(img,0,int(n_h-h), 0, int(n_w-w),cv2.BORDER_CONSTANT, value=[0, 0, 0]) 
+        patches = patch_image(img_border, patch_size, overlap)
+        empty_mask = np.zeros((img_border.shape[0], img_border.shape[1]))
+        patches_np = np.reshape(patches, (int(n_h/step), int(n_w/step), patch_size, patch_size, channels))
+        num_patches = len(patches)
+        patches_increments_count +=1
+    return patches_np, empty_mask, patch_size
 
 
 def check_health(health_model, img_patch, masks_p, health_thres):
@@ -634,7 +641,8 @@ def predict_img(img_p, args, model_predictor, save=True, save_path="", path="", 
     if args.patching:
         patch_size = args.patch_size
         overlap = args.overlap
-        patches, empty_mask = im2patches(img_p, patch_size, overlap)
+        patches, empty_mask, patch_size = im2patches(img_p, patch_size, overlap, max_patches = 80)
+        args.patch_size = patch_size #update the value to have not more than "max_patches" crops
         n_row, n_col, _, _, _ = patches.shape
         logging.info("{} patches: {} rows and {} columns".format(str(n_row*n_col), str(n_row), str(n_col)))
         bboxs_t, confs_t, clss_t, masks_t = ([] for i in range(4))
@@ -690,52 +698,53 @@ def predict_img(img_p, args, model_predictor, save=True, save_path="", path="", 
                     cv2.imwrite(out_filename + "_p_" + str(ii) + str(jj) +"_mask.jpg", img_out_mask)
                     
         # Join all the predictions over patches
-        pred_compose = torch.FloatTensor(np.array(bboxs_t)), torch.FloatTensor(np.array(confs_t)), torch.FloatTensor(np.array(clss_t)), torch.FloatTensor(np.array(masks_t))
-        if len(pred_compose[0]):
-            pred_compose_nms = non_max_suppression_compose(pred_compose, iou_thres=args.nms_max_overlap)
-        else:
-            pred_compose_nms = pred_compose
-            
-        cont_det += len(pred_compose_nms[0])
-            
-        # Load classes names
-        if args.det_model == "Detic":
-            classes_names = model_predictor.metadata.thing_classes
-        else:
-            classes_names = []
-            for ii in range(len(model_predictor.names)):
-                classes_names.append(model_predictor.names[ii])
-        
-        # Draw output img     
-        img_out_bbox, img_out_mask, mask_tot = lists2img(np.asarray(img_o), pred_compose_nms, classes_names, fruit_zone)
-        
-        # Print health status over img
-        health_mask_agg_final = np.zeros(img_o.shape)
-        health_mask_agg_p = health_mask_agg[0:img_o.shape[0], 0:img_o.shape[1]]
-        health_mask_agg_final[fruit_zone[0]:fruit_zone[2],fruit_zone[1]:fruit_zone[3]] = health_mask_agg_p[0:(fruit_zone[2]-fruit_zone[0]), 0:(fruit_zone[3]-fruit_zone[1])]
-        if args.print_health and (health_model is not None):
-            health_msg = "Disease detected: {}".format(str(health_flag))
-            txt_position = (10, health_mask_agg_final.shape[0]-10)
-            img_health = cv2.putText(np.copy(health_mask_agg_final), health_msg, txt_position, cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 1)
-        elif (health_model is not None):
-            img_health = np.copy(health_mask_agg_final)
-
-        # Save results
-        if save:
-            if save_path:
-                if os.path.isdir(save_path):
-                    assert os.path.isdir(save_path), save_path
-                    out_filename = os.path.join(save_path, os.path.basename(path))
-                else:
-                    assert len(save_path) == 1, "Please specify a directory with args.output"
-                    out_filename = save_path
+        with torch.no_grad():
+            pred_compose = torch.FloatTensor(np.array(bboxs_t)), torch.FloatTensor(np.array(confs_t)), torch.FloatTensor(np.array(clss_t)), torch.FloatTensor(np.array(masks_t))
+            if len(pred_compose[0]):
+                pred_compose_nms = non_max_suppression_compose(pred_compose, iou_thres=args.nms_max_overlap)
             else:
-                out_filename=""
+                pred_compose_nms = pred_compose
                 
+            cont_det += len(pred_compose_nms[0])
+            
+            # Load classes names
+            if args.det_model == "Detic":
+                classes_names = model_predictor.metadata.thing_classes
+            else:
+                classes_names = []
+                for ii in range(len(model_predictor.names)):
+                    classes_names.append(model_predictor.names[ii])
+            
+            # Draw output img     
+            img_out_bbox, img_out_mask, mask_tot = lists2img(np.asarray(img_o), pred_compose_nms, classes_names, fruit_zone)
+            
+            # Print health status over img
+            health_mask_agg_final = np.zeros(img_o.shape)
+            health_mask_agg_p = health_mask_agg[0:img_o.shape[0], 0:img_o.shape[1]]
+            health_mask_agg_final[fruit_zone[0]:fruit_zone[2],fruit_zone[1]:fruit_zone[3]] = health_mask_agg_p[0:(fruit_zone[2]-fruit_zone[0]), 0:(fruit_zone[3]-fruit_zone[1])]
             if args.print_health and (health_model is not None):
-                cv2.imwrite(out_filename +"_health.jpg", img_health)
-            cv2.imwrite(out_filename +"_vis.jpg", img_out_bbox)
-            cv2.imwrite(out_filename +"_mask.jpg", img_out_mask)    
+                health_msg = "Disease detected: {}".format(str(health_flag))
+                txt_position = (10, health_mask_agg_final.shape[0]-10)
+                img_health = cv2.putText(np.copy(health_mask_agg_final), health_msg, txt_position, cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 1)
+            elif (health_model is not None):
+                img_health = np.copy(health_mask_agg_final)
+
+            # Save results
+            if save:
+                if save_path:
+                    if os.path.isdir(save_path):
+                        assert os.path.isdir(save_path), save_path
+                        out_filename = os.path.join(save_path, os.path.basename(path))
+                    else:
+                        assert len(save_path) == 1, "Please specify a directory with args.output"
+                        out_filename = save_path
+                else:
+                    out_filename=""
+                    
+                if args.print_health and (health_model is not None):
+                    cv2.imwrite(out_filename +"_health.jpg", img_health)
+                cv2.imwrite(out_filename +"_vis.jpg", img_out_bbox)
+                cv2.imwrite(out_filename +"_mask.jpg", img_out_mask)    
     
     # Predict full image        
     else:
@@ -1412,73 +1421,114 @@ def find_square_contours(img_bin):
 
 
 def insect_statistics(predictions, roi_bbox, grid_cells, clss_names, area_cell_std=625):
-    # Transform grid cell coordinates to full image coordinates
-    grid_cells_abs = [np.squeeze(cell, axis=1) + (roi_bbox[1], roi_bbox[0]) for cell in grid_cells]
+    if grid_cells != None:
+        # Transform grid cell coordinates to full image coordinates
+        grid_cells_abs = [np.squeeze(cell, axis=1) + (roi_bbox[1], roi_bbox[0]) for cell in grid_cells]
 
-    # Calculate the area of each grid cell
-    cell_areas = [cv2.contourArea(cell) for cell in grid_cells_abs]
+        # Calculate the area of each grid cell
+        cell_areas = [cv2.contourArea(cell) for cell in grid_cells_abs]
 
-    # Calculate the mean area of the grid cells
-    mean_cell_area = np.mean(cell_areas)
+        # Calculate the mean area of the grid cells
+        mean_cell_area = np.mean(cell_areas)
 
-    # Sort cell areas in descending order
-    sorted_cell_areas = sorted(cell_areas, reverse=True)
-    
-    # Select the top 10 cell areas
-    top_20_cell_areas = sorted_cell_areas[:20]
+        # Sort cell areas in descending order
+        sorted_cell_areas = sorted(cell_areas, reverse=True)
+        
+        # Select the top 10 cell areas
+        top_20_cell_areas = sorted_cell_areas[:20]
 
-    # Detect and remove outliers using IQR
-    q1 = np.percentile(top_20_cell_areas, 25)
-    q3 = np.percentile(top_20_cell_areas, 75)
-    iqr = q3 - q1
-    lower_bound = q1 - (1.2 * iqr)
-    upper_bound = q3 + (1.2 * iqr)
-    filtered_cell_areas = [area for area in top_20_cell_areas if lower_bound <= area <= upper_bound]
+        # Detect and remove outliers using IQR
+        q1 = np.percentile(top_20_cell_areas, 25)
+        q3 = np.percentile(top_20_cell_areas, 75)
+        iqr = q3 - q1
+        lower_bound = q1 - (1.2 * iqr)
+        upper_bound = q3 + (1.2 * iqr)
+        filtered_cell_areas = [area for area in top_20_cell_areas if lower_bound <= area <= upper_bound]
 
-    # Calculate the mean of the filtered cell areas
-    mean_filtered_area = np.mean(filtered_cell_areas)
+        # Calculate the mean of the filtered cell areas
+        mean_filtered_area = np.mean(filtered_cell_areas)
 
-    # Initialize dictionary to store statistics for each cell
-    cell_stats = {i: {"coords": cell.tolist(), "area_mm2": round((area_cell_std * area)/(mean_filtered_area),2)} for i, (cell, area) in enumerate(zip(grid_cells_abs, cell_areas))}
+        # Initialize dictionary to store statistics for each cell
+        cell_stats = {i: {"coords": cell.tolist(), "area_mm2": round((area_cell_std * area)/(mean_filtered_area),2)} for i, (cell, area) in enumerate(zip(grid_cells_abs, cell_areas))}
 
-    total_detections = 0
-    bboxes, confs, clss, masks = predictions
+        total_detections = 0
+        bboxes, confs, clss, masks = predictions
 
-    # For each detection...
-    for ii in range(len(bboxes)):
-        # Get the coordinates of the center of the detection
-        x_center = int((bboxes[ii][0] + bboxes[ii][2]) / 2)
-        y_center = int((bboxes[ii][1] + bboxes[ii][3]) / 2)
+        # For each detection...
+        for ii in range(len(bboxes)):
+            # Get the coordinates of the center of the detection
+            x_center = int((bboxes[ii][0] + bboxes[ii][2]) / 2)
+            y_center = int((bboxes[ii][1] + bboxes[ii][3]) / 2)
 
-        # Check in which cell the center of the detection falls
-        for i, cell in enumerate(grid_cells_abs):
-            if cv2.pointPolygonTest(cell.reshape(-1,1,2), (x_center, y_center), False) >= 0:
-                # If the class of the detection has already been detected in this cell, increment the count
-                if clss_names[int(clss[ii])] in cell_stats[i]:
-                    cell_stats[i][clss_names[int(clss[ii])]] += 1
-                # If not, initialize the count to 1
-                else:
-                    cell_stats[i][clss_names[int(clss[ii])]] = 1
-                total_detections += 1
+            # Check in which cell the center of the detection falls
+            for i, cell in enumerate(grid_cells_abs):
+                if cv2.pointPolygonTest(cell.reshape(-1,1,2), (x_center, y_center), False) >= 0:
+                    # If the class of the detection has already been detected in this cell, increment the count
+                    if clss_names[int(clss[ii])] in cell_stats[i]:
+                        cell_stats[i][clss_names[int(clss[ii])]] += 1
+                    # If not, initialize the count to 1
+                    else:
+                        cell_stats[i][clss_names[int(clss[ii])]] = 1
+                    total_detections += 1
 
-    # Calculate the total density of detections per cell (in insects per mm^2)
-    total_density_per_cell = round(total_detections / sum(cell_areas) * 25.0**2, 3)
+        # Calculate the total density of detections per cell (in insects per mm^2)
+        total_density_per_cell = round(total_detections / sum(cell_areas) * 25.0**2, 3)
 
-    # Calculate the density of each class of insects per cell (in insects per mm^2)
-    class_counts = {cls: sum([cell_stats[i].get(cls, 0) for i in range(len(grid_cells_abs))]) for cls in clss_names}
-    class_density_per_cell = {cls: round(count / sum(cell_areas) * 25.0**2, 3) for cls, count in class_counts.items()}
+        # Calculate the density of each class of insects per cell (in insects per mm^2)
+        class_counts = {cls: sum([cell_stats[i].get(cls, 0) for i in range(len(grid_cells_abs))]) for cls in clss_names}
+        class_density_per_cell = {cls: round(count / sum(cell_areas) * 25.0**2, 3) for cls, count in class_counts.items()}
 
-    # Create the new dictionary that includes the "grid" structure
-    output_stats = {
-        "grid": cell_stats,
-        "mean_cell_area": round((area_cell_std * mean_cell_area)/(mean_filtered_area),2),  # Convert to mm^2
-        "total_density_per_cell": total_density_per_cell,
-        "class_density_per_cell": class_density_per_cell,
-        "total_detections": total_detections
-    }
+        # Create the new dictionary that includes the "grid" structure
+        output_stats = {
+            "grid": cell_stats,
+            "mean_cell_area": round((area_cell_std * mean_cell_area)/(mean_filtered_area),2),  # Convert to mm^2
+            "total_density_per_cell": total_density_per_cell,
+            "class_density_per_cell": class_density_per_cell,
+            "total_detections": total_detections
+        }
+    else:
+        total_detections = 0
+        bboxes, confs, clss, masks = predictions
+        class_stats = {}
+
+        # For each detection...
+        for ii in range(len(bboxes)):
+            if clss_names[int(clss[ii])] in class_stats:
+                class_stats[clss_names[int(clss[ii])]] += 1
+            # If not, initialize the count to 1
+            else:
+                class_stats[clss_names[int(clss[ii])]] = 1
+        
+            total_detections += 1
+
+        # Calculate the density of each class of insects per cell (in insects per mm^2)
+        output_stats = {
+            "grid": "No grid detected",
+            "class_density_per_cell": class_stats,
+            "total_detections": total_detections
+        }
+
 
     return output_stats
 
 
+def list_image_paths(path):
+    # Crear una lista para almacenar las rutas de las imágenes
+    image_paths = []
+
+    # Comprobar si la ruta es a un directorio
+    if os.path.isdir(path):
+        # Recorrer todos los archivos en el directorio
+        for filename in os.listdir(path):
+            # Comprobar si el archivo es una imagen
+            if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif')):
+                # Si es una imagen, añadir su ruta a la lista
+                image_paths.append(os.path.join(path, filename))
+    # Comprobar si la ruta es a un archivo
+    elif os.path.isfile(path) and path.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif')):
+        # Si es una imagen, añadir su ruta a la lista
+        image_paths.append(path)
+
+    return image_paths
 
 
