@@ -9,6 +9,7 @@ from xdcoder_utils import semseg_single_im
 import cv2
 import torch
 from PIL import Image
+from GSAM_utils import load_model_grdSAM
 
 import sys
 sys.path.insert(0, 'detectron2/')
@@ -46,8 +47,10 @@ def load_model(self):
     pil_image = Image.fromarray(numpy_image)
     
     if self.args.det_model == "Detic":
-            self.model_predictor = load_detic(self.args)
-            _ = self.model_predictor.run_on_image(numpy_image) 
+        self.model_predictor = load_detic(self.args)
+        _ = self.model_predictor.run_on_image(numpy_image) 
+    elif self.args.det_model == "grdSAM":
+        self.model_predictor = load_model_grdSAM()
     else:
         #self.model_predictor = YOLO("yolov8x-seg.pt")  # load an official model
         self.model_predictor = YOLO("models/best_46_epoch_pest.pt")  # load a custom model
@@ -118,7 +121,7 @@ def infer(self, img, id=0, frame_id=0):
     # Predict with detection model over patches or full image
     logging.info("first pixel color check bf det crop: {}".format(img_zoi_crop[0][0]))
     logging.info("first pixel color check bf det img_ori: {}".format(img_ori_np[0][0]))
-    img_out_bbox, img_out_mask, mask, img_health, health_flag, cont_det, pred = predict_img(img_zoi_crop, self.args, self.model_predictor, save=False, save_path="", img_o=img_ori_np, fruit_zone=fruit_bbox, health_model=None, cont_det=cont_det)
+    img_out_bbox, img_out_mask, mask, cont_det, pred = predict_img(img_zoi_crop, self.args, self.model_predictor, save=False, save_path="", img_o=img_ori_np, fruit_zone=fruit_bbox, cont_det=cont_det)
     logging.info("Detection time: {:.2f} seconds".format(time.time() - det_start_time))
     
     post_start_time = time.time()
@@ -148,7 +151,7 @@ def infer(self, img, id=0, frame_id=0):
     logging.info("img_ori_np shape, color: {}, {}".format(img_ori_np.shape, img_ori_np[0][0]))
     logging.info("mask_final shape, color: {}, {}".format(mask_final.shape, mask_final[0][0]))
     #logging.info("img_health shape, color: {}, {}".format(img_health.shape, img_health[0][0]))
-    annotations = pred2COCOannotations(img_ori_np, mask_final, img_health, pred)
+    annotations = pred2COCOannotations(img_ori_np, mask_final, pred)
 
     annotations.update(pest_stats)
     

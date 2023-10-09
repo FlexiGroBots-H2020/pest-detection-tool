@@ -33,7 +33,7 @@ sentencepiece
 regex
 nltk
 vision-datasets==0.2.2
-pycocotools==2.0.4
+#pycocotools==2.0.4
 diffdist
 pyarrow
 cityscapesscripts
@@ -49,3 +49,7 @@ torchmetrics==0.6.0
 paho-mqtt==1.6.1
 piexif
 
+
+#GRDSAM
+segment-anything-hq
+diffusers

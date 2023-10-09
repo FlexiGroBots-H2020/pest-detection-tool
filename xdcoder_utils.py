@@ -180,15 +180,24 @@ def semseg_single_im(image_ori, transform, model, metadata, output_root, file_na
 
             sem_seg = outputs[-1]['sem_seg'].max(0)[1]
             sem_seg_np = sem_seg.cpu().numpy()
-            sem_seg_np = (sem_seg_np * 255).astype(np.uint8)
+            sem_seg_np = (sem_seg_np).astype(np.uint8)
             sem_seg_pil = Image.fromarray(sem_seg_np)
             transform_resize = T.Resize(size = (height,width), interpolation=Image.BICUBIC)
             sem_seg = transform_resize(sem_seg_pil)
             sem_seg = np.asarray(sem_seg)
             img_out = visual.draw_sem_seg(sem_seg, alpha=0.4) # rgb Image
 
-            if np.nonzero(sem_seg == 0) != None:
-                mask_roi = np.array(sem_seg)==0
+            if (np.nonzero(sem_seg == 0) or np.nonzero(sem_seg == 1) or np.nonzero(sem_seg == 2)) != None:
+                combined_masks = [sem_seg == i for i in [0, 1, 2]]
+                largest_areas = []
+
+                for mask in combined_masks:
+                    _, _, stats, _ = cv2.connectedComponentsWithStats(mask.astype("uint8"), connectivity=8)
+                    largest_area = np.max(stats[1:, -1])  # Excluir el fondo
+                    largest_areas.append(largest_area)
+                largest_mask = combined_masks[np.argmax(largest_areas)]
+                mask_roi = largest_mask
+                #mask_roi = np.logical_or(sem_seg == 0, sem_seg == 1, sem_seg == 2) # take yellow trap or red trap or blue trap
                 nb_components, output, stats, _ = cv2.connectedComponentsWithStats(mask_roi.astype("uint8"), connectivity=8)
                 sizes = stats[:, -1]
                 max_label = 1
